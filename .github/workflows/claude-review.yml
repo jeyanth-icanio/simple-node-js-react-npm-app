@@ -41,7 +41,6 @@ jobs:
             --max-turns 8
 
       - name: Convert review to HTML
-        shell: bash
         run: |
           npx -y marked claude-review.md > claude-review.html
           cat <<'EOF' > wrapper.html
