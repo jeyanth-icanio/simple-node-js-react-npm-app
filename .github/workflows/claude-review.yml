@@ -29,40 +29,64 @@ jobs:
           fetch-depth: 0
 
       # ============================================
-      # 2. Check runner
+      # 2. Check runner environment
       # ============================================
       - name: Check runner environment
-        shell: pwsh
+        shell: bash
         run: |
-          Write-Host "====================================="
-          Write-Host "Runner Environment"
-          Write-Host "====================================="
+          echo "====================================="
+          echo "Runner Environment"
+          echo "====================================="
 
-          Write-Host "Operating System:"
-          $env:OS
+          echo ""
+          echo "Operating System:"
+          echo "$OS"
 
-          Write-Host ""
-          Write-Host "Node:"
-          node --version
+          echo ""
+          echo "Node:"
+          node --version || true
 
-          Write-Host ""
-          Write-Host "NPM:"
-          npm --version
+          echo ""
+          echo "NPM:"
+          npm --version || true
 
-          Write-Host ""
-          Write-Host "Git:"
+          echo ""
+          echo "Git:"
           git --version
 
-          Write-Host ""
-          Write-Host "GitHub CLI:"
-          gh --version
+          echo ""
+          echo "GitHub CLI:"
+          gh --version || true
 
-          Write-Host ""
-          Write-Host "Current Directory:"
-          Get-Location
+          echo ""
+          echo "Current Directory:"
+          pwd
+
+          echo ""
+          echo "Repository Files:"
+          ls -la
 
       # ============================================
-      # 3. Claude Code Review
+      # 3. Test Anthropic API key exists
+      # ============================================
+      - name: Check Anthropic API key
+        shell: bash
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          echo "====================================="
+          echo "Checking Anthropic API Key"
+          echo "====================================="
+
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "ERROR: ANTHROPIC_API_KEY is not configured."
+            exit 1
+          fi
+
+          echo "SUCCESS: ANTHROPIC_API_KEY is configured."
+
+      # ============================================
+      # 4. Run Claude Code Review
       # ============================================
       - name: Run Claude Code Review
         id: claude
@@ -88,7 +112,7 @@ jobs:
 
             Review the complete Pull Request.
 
-            The application uses:
+            Application:
             - Node.js
             - React
             - npm
@@ -113,13 +137,13 @@ jobs:
 
             IMPORTANT:
 
-            You MUST create a file called:
+            You MUST create:
 
             claude-review.md
 
             in the repository root.
 
-            The review file MUST use this format:
+            The review MUST use this format:
 
             # Claude Code Review
 
@@ -129,7 +153,7 @@ jobs:
 
             ## Issues Found
 
-            Use EXACTLY this table format:
+            Use exactly:
 
             | Severity | File | Line | Issue |
             |----------|------|------|-------|
@@ -141,9 +165,9 @@ jobs:
             Medium
             Low
 
-            Include the file path and line number whenever possible.
+            Include file path and line number whenever possible.
 
-            If no issues are found, write:
+            If no issues are found, use:
 
             | Severity | File | Line | Issue |
             |----------|------|------|-------|
@@ -170,227 +194,197 @@ jobs:
 
             CHANGES REQUESTED
 
-            Explain what needs to be done before merging.
+            Explain what needs to be fixed before merging.
 
             IMPORTANT:
 
-            1. First analyze the Pull Request.
+            1. Analyze the Pull Request.
             2. Create claude-review.md.
             3. Read claude-review.md.
-            4. Post the contents of claude-review.md as a comment
-               on the Pull Request.
-            5. Do NOT skip the file creation.
+            4. Post the same content as a Pull Request comment.
+            5. Do NOT skip file creation.
             6. Do NOT create an empty review.
-            7. Do NOT claim the review was completed unless
-               claude-review.md actually exists.
 
           claude_args: |
             --max-turns 20
-            --permission-mode bypassPermissions
             --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(git diff:*),Bash(git status:*),Bash(git log:*),Bash(git show:*),Read,Write"
 
       # ============================================
-      # 4. Verify Claude output
+      # 5. Verify Claude review file
       # ============================================
       - name: Verify Claude review
-        shell: pwsh
+        shell: bash
         run: |
-          Write-Host ""
-          Write-Host "====================================="
-          Write-Host "Checking Claude Review"
-          Write-Host "====================================="
+          echo "====================================="
+          echo "Checking Claude Review"
+          echo "====================================="
 
-          if (Test-Path "claude-review.md") {
+          if [ -f "claude-review.md" ]; then
 
-              Write-Host ""
-              Write-Host "SUCCESS"
-              Write-Host "claude-review.md was created."
+            echo ""
+            echo "SUCCESS: claude-review.md was created."
 
-              Write-Host ""
-              Write-Host "File details:"
-              Get-Item "claude-review.md" |
-                Select-Object Name, Length, FullName
+            echo ""
+            echo "====================================="
+            echo "Claude Review"
+            echo "====================================="
 
-              Write-Host ""
-              Write-Host "====================================="
-              Write-Host "Claude Review Content"
-              Write-Host "====================================="
+            cat claude-review.md
 
-              Get-Content "claude-review.md"
+            echo ""
+            echo "====================================="
 
-              Write-Host ""
-              Write-Host "====================================="
+          else
 
-          }
-          else {
+            echo ""
+            echo "ERROR: claude-review.md was NOT created."
 
-              Write-Host ""
-              Write-Host "ERROR"
-              Write-Host "claude-review.md was NOT created."
+            echo ""
+            echo "Current directory:"
+            pwd
 
-              Write-Host ""
-              Write-Host "Current directory:"
-              Get-Location
+            echo ""
+            echo "Repository files:"
+            ls -la
 
-              Write-Host ""
-              Write-Host "Repository files:"
-              Get-ChildItem -Force
+            echo ""
+            echo "Searching for review file:"
+            find . -name "claude-review.md" -type f 2>/dev/null || true
 
-              Write-Host ""
-              Write-Host "Searching entire workspace:"
-              Get-ChildItem `
-                -Path $env:GITHUB_WORKSPACE `
-                -Filter "claude-review.md" `
-                -Recurse `
-                -ErrorAction SilentlyContinue
+            exit 1
 
-              Write-Error `
-                "Claude Code did not create claude-review.md."
-          }
+          fi
 
       # ============================================
-      # 5. Convert Markdown to HTML
+      # 6. Convert Markdown to HTML
       # ============================================
       - name: Convert review to HTML
-        shell: pwsh
+        shell: bash
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          node <<'NODE'
 
-          $markdown = Get-Content `
-            "claude-review.md" `
-            -Raw
+          const fs = require('fs');
 
-          function Escape-Html($text) {
-              $text = $text -replace '&', '&amp;'
-              $text = $text -replace '<', '&lt;'
-              $text = $text -replace '>', '&gt;'
-              $text = $text -replace '"', '&quot;'
-              return $text
+          const markdown =
+            fs.readFileSync('claude-review.md', 'utf8');
+
+          function escapeHtml(text) {
+            return text
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#039;');
           }
 
-          $lines = $markdown -split "`r?`n"
+          const lines = markdown.split(/\r?\n/);
 
-          $html = ""
-          $inTable = $false
-          $firstTableRow = $true
+          let html = '';
+          let inTable = false;
+          let firstTableRow = true;
 
-          foreach ($line in $lines) {
+          for (const line of lines) {
 
-              if ($line.StartsWith("### ")) {
+            if (line.startsWith('# ')) {
+              html +=
+                '<h1>' +
+                escapeHtml(line.substring(2)) +
+                '</h1>\n';
 
-                  $content = Escape-Html($line.Substring(4))
+              continue;
+            }
 
-                  $html += "<h3>$content</h3>`n"
+            if (line.startsWith('## ')) {
+              html +=
+                '<h2>' +
+                escapeHtml(line.substring(3)) +
+                '</h2>\n';
 
-                  continue
+              continue;
+            }
+
+            if (line.startsWith('### ')) {
+              html +=
+                '<h3>' +
+                escapeHtml(line.substring(4)) +
+                '</h3>\n';
+
+              continue;
+            }
+
+            if (line.trim().startsWith('|')) {
+
+              const trimmed = line.trim();
+
+              const content =
+                trimmed.substring(
+                  1,
+                  trimmed.length - 1
+                );
+
+              const cells = content
+                .split('|')
+                .map(cell => cell.trim());
+
+              const separator =
+                cells.length > 0 &&
+                cells.every(cell =>
+                  /^:?-+:?$/.test(cell)
+                );
+
+              if (separator) {
+                continue;
               }
 
-              if ($line.StartsWith("## ")) {
-
-                  $content = Escape-Html($line.Substring(3))
-
-                  $html += "<h2>$content</h2>`n"
-
-                  continue
+              if (!inTable) {
+                html += '<table>\n';
+                inTable = true;
+                firstTableRow = true;
               }
 
-              if ($line.StartsWith("# ")) {
+              const tag =
+                firstTableRow ? 'th' : 'td';
 
-                  $content = Escape-Html($line.Substring(2))
+              html += '<tr>';
 
-                  $html += "<h1>$content</h1>`n"
-
-                  continue
+              for (const cell of cells) {
+                html +=
+                  `<${tag}>` +
+                  escapeHtml(cell) +
+                  `</${tag}>`;
               }
 
-              if ($line.Trim().StartsWith("|")) {
+              html += '</tr>\n';
 
-                  $trimmed = $line.Trim()
+              firstTableRow = false;
 
-                  $trimmed = $trimmed.Substring(
-                    1,
-                    $trimmed.Length - 2
-                  )
+              continue;
+            }
 
-                  $cells = $trimmed.Split("|")
+            if (inTable) {
+              html += '</table>\n';
+              inTable = false;
+              firstTableRow = true;
+            }
 
-                  $isSeparator = $true
+            if (line.trim() === '') {
+              html += '<br>\n';
+              continue;
+            }
 
-                  foreach ($cell in $cells) {
-
-                      $cleanCell = $cell.Trim()
-
-                      if ($cleanCell -notmatch "^:?-+:?$") {
-                          $isSeparator = $false
-                          break
-                      }
-                  }
-
-                  if ($isSeparator) {
-                      continue
-                  }
-
-                  if (-not $inTable) {
-
-                      $html += "<table>`n"
-
-                      $inTable = $true
-
-                      $firstTableRow = $true
-                  }
-
-                  if ($firstTableRow) {
-                      $tag = "th"
-                  }
-                  else {
-                      $tag = "td"
-                  }
-
-                  $html += "<tr>"
-
-                  foreach ($cell in $cells) {
-
-                      $content = Escape-Html(
-                        $cell.Trim()
-                      )
-
-                      $html += "<$tag>$content</$tag>"
-                  }
-
-                  $html += "</tr>`n"
-
-                  $firstTableRow = $false
-
-                  continue
-              }
-
-              if ($inTable) {
-
-                  $html += "</table>`n"
-
-                  $inTable = $false
-
-                  $firstTableRow = $true
-              }
-
-              if ([string]::IsNullOrWhiteSpace($line)) {
-
-                  $html += "<br>`n"
-
-                  continue
-              }
-
-              $content = Escape-Html($line)
-
-              $html += "<p>$content</p>`n"
+            html +=
+              '<p>' +
+              escapeHtml(line) +
+              '</p>\n';
           }
 
-          if ($inTable) {
-              $html += "</table>`n"
+          if (inTable) {
+            html += '</table>\n';
           }
 
-          $page = @"
+          const page = `
           <!DOCTYPE html>
 
           <html>
@@ -400,83 +394,64 @@ jobs:
           <meta charset="UTF-8">
 
           <title>
-          Claude PR Review - PR #$env:PR_NUMBER
+          Claude PR Review - PR #${process.env.PR_NUMBER}
           </title>
 
           <style>
 
           body {
-              font-family:
+            font-family:
               -apple-system,
               BlinkMacSystemFont,
               "Segoe UI",
               Arial,
               sans-serif;
 
-              max-width: 1100px;
+            max-width: 1100px;
+            margin: 40px auto;
+            padding: 0 25px;
 
-              margin: 40px auto;
-
-              padding: 0 25px;
-
-              line-height: 1.6;
-
-              color: #24292f;
-
-              background: #ffffff;
+            line-height: 1.6;
+            color: #24292f;
+            background: #ffffff;
           }
 
           h1 {
-              border-bottom:
-              2px solid #ddd;
-
-              padding-bottom: 10px;
+            border-bottom: 2px solid #ddd;
+            padding-bottom: 10px;
           }
 
           h2 {
-              margin-top: 35px;
-
-              border-bottom:
-              1px solid #ddd;
-
-              padding-bottom: 5px;
+            margin-top: 35px;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 5px;
           }
 
           table {
-              width: 100%;
-
-              border-collapse:
-              collapse;
-
-              margin: 20px 0;
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
           }
 
           th {
-              background-color:
-              #f6f8fa;
-
-              font-weight: 600;
+            background-color: #f6f8fa;
+            font-weight: 600;
           }
 
           th,
           td {
-              border:
-              1px solid #d0d7de;
-
-              padding: 10px;
-
-              text-align: left;
-
-              vertical-align: top;
+            border: 1px solid #d0d7de;
+            padding: 10px;
+            text-align: left;
+            vertical-align: top;
           }
 
           tr:nth-child(even) {
-              background-color:
-              #f9f9f9;
+            background-color: #f9f9f9;
           }
 
           p {
-              margin: 10px 0;
+            margin: 10px 0;
           }
 
           </style>
@@ -485,23 +460,26 @@ jobs:
 
           <body>
 
-          $html
+          ${html}
 
           </body>
 
           </html>
-          "@
+          `;
 
-          Set-Content `
-            -Path "claude-review.html" `
-            -Value $page `
-            -Encoding UTF8
+          fs.writeFileSync(
+            'claude-review.html',
+            page
+          );
 
-          Write-Host ""
-          Write-Host "HTML report created successfully."
+          console.log(
+            'SUCCESS: claude-review.html created.'
+          );
+
+          NODE
 
       # ============================================
-      # 6. Upload HTML report
+      # 7. Upload HTML report
       # ============================================
       - name: Upload HTML report
         uses: actions/upload-artifact@v4
