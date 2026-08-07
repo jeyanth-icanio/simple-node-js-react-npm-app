@@ -1,4 +1,5 @@
 name: Claude Code Review
+
 on:
   pull_request:
     types: [opened, synchronize]
@@ -8,86 +9,229 @@ on:
 jobs:
   review:
     runs-on: self-hosted
+
     permissions:
-      contents: read
+      contents: write
       pull-requests: write
       issues: read
       id-token: write
 
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout repository
+        uses: actions/checkout@v6
         with:
-          fetch-depth: 1
+          fetch-depth: 0
 
-      - uses: anthropics/claude-code-action@v1
+      - name: Run Claude Code Review
+        uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
-            Review this pull request for a Node.js/React app.
-            Focus on: code quality, bugs, security issues (especially
-            npm dependency risks), test coverage, and React/Node best
-            practices. Point out strengths as well as weaknesses.
+            Review this pull request for a Node.js/React application.
 
-            IMPORTANT - do these in order, both are required:
-            1. First, write the full review to a file named
-               claude-review.md in the repo root (use the Write tool),
-               formatted with Issues Found as a markdown table
-               (Severity | File | Line | Issue), ending with:
-               Strengths / Issues Found / Risk Level / Recommendation.
-            2. Then post the same content as a PR comment using the
-               GitHub comment tool.
+            Focus on:
+            - Code quality
+            - Bugs and potential runtime issues
+            - Security vulnerabilities
+            - npm dependency risks
+            - Test coverage
+            - React best practices
+            - Node.js best practices
+            - Performance issues
+
+            Point out both strengths and weaknesses.
+
+            You MUST do the following:
+
+            1. Review the complete pull request.
+            2. Create a file named claude-review.md in the repository root.
+            3. The file must contain:
+
+            # Claude Code Review
+
+            ## Strengths
+
+            List positive aspects of the changes.
+
+            ## Issues Found
+
+            Use this exact markdown table format:
+
+            | Severity | File | Line | Issue |
+            |----------|------|------|-------|
+
+            Add all issues found to the table.
+
+            ## Risk Level
+
+            State Low, Medium, High, or Critical and explain why.
+
+            ## Recommendation
+
+            Provide a clear recommendation about whether the PR is ready
+            to merge or requires changes.
+
+            4. After creating claude-review.md, post its complete contents
+            as a comment on the pull request.
+
+            Do not skip the file creation step.
+
           claude_args: |
-            --model claude-sonnet-5
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Write"
-            --max-turns 15
+            --model claude-sonnet-4-5
+            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(cat:*),Bash(pwd:*),Bash(ls:*),Bash(touch:*),Bash(echo:*)"
+            --max-turns 20
 
       - name: Check review file exists
         shell: bash
         run: |
+          echo "Checking for claude-review.md..."
+
           if [ -f claude-review.md ]; then
-            echo "claude-review.md found:"
+            echo "claude-review.md found."
+            echo "--------------------------------"
+            cat claude-review.md
+            echo "--------------------------------"
             wc -l claude-review.md
           else
-            echo "WARNING: claude-review.md was not created by Claude."
-            echo "# Review Unavailable" > claude-review.md
-            echo "" >> claude-review.md
-            echo "Claude did not generate a review file for this run. Check the 'Run Claude Code Action' step log above for details." >> claude-review.md
+            echo "ERROR: claude-review.md was not created."
+            echo "Claude Code Action failed to create the review."
+            exit 1
           fi
 
       - name: Convert review to HTML
         shell: bash
         run: |
-          node -e "
+          node <<'NODE'
           const fs = require('fs');
+
           const md = fs.readFileSync('claude-review.md', 'utf8');
-          const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+          const esc = s =>
+            s.replace(/&/g, '&amp;')
+             .replace(/</g, '&lt;')
+             .replace(/>/g, '&gt;');
+
           const lines = md.split('\n');
           let html = '';
           let inTable = false;
+          let tableHeader = true;
+
           for (const line of lines) {
-            if (line.startsWith('### ')) { html += '<h3>' + esc(line.slice(4)) + '</h3>\n'; continue; }
-            if (line.startsWith('## '))  { html += '<h2>' + esc(line.slice(3)) + '</h2>\n'; continue; }
-            if (line.startsWith('# '))   { html += '<h1>' + esc(line.slice(2)) + '</h1>\n'; continue; }
-            if (line.trim().startsWith('|')) {
-              const cells = line.trim().slice(1,-1).split('|').map(c => c.trim());
-              if (cells.every(c => /^-+$/.test(c))) continue;
-              const tag = inTable ? 'td' : 'th';
-              if (!inTable) { html += '<table>\n'; inTable = true; }
-              html += '<tr>' + cells.map(c => '<' + tag + '>' + esc(c) + '</' + tag + '>').join('') + '</tr>\n';
+
+            if (line.startsWith('### ')) {
+              html += '<h3>' + esc(line.slice(4)) + '</h3>\n';
               continue;
-            } else if (inTable) { html += '</table>\n'; inTable = false; }
-            if (line.trim() === '') { html += '<br>\n'; continue; }
+            }
+
+            if (line.startsWith('## ')) {
+              html += '<h2>' + esc(line.slice(3)) + '</h2>\n';
+              continue;
+            }
+
+            if (line.startsWith('# ')) {
+              html += '<h1>' + esc(line.slice(2)) + '</h1>\n';
+              continue;
+            }
+
+            if (line.trim().startsWith('|')) {
+
+              const cells = line
+                .trim()
+                .slice(1, -1)
+                .split('|')
+                .map(c => c.trim());
+
+              if (cells.every(c => /^:?-+:?$/.test(c))) {
+                continue;
+              }
+
+              if (!inTable) {
+                html += '<table>\n';
+                inTable = true;
+                tableHeader = true;
+              }
+
+              const tag = tableHeader ? 'th' : 'td';
+
+              html += '<tr>' +
+                cells.map(c =>
+                  `<${tag}>${esc(c)}</${tag}>`
+                ).join('') +
+                '</tr>\n';
+
+              tableHeader = false;
+              continue;
+            }
+
+            if (inTable) {
+              html += '</table>\n';
+              inTable = false;
+              tableHeader = true;
+            }
+
+            if (line.trim() === '') {
+              html += '<br>\n';
+              continue;
+            }
+
             html += '<p>' + esc(line) + '</p>\n';
           }
-          if (inTable) html += '</table>\n';
-          const page = '<!DOCTYPE html><html><head><meta charset=\"utf-8\">' +
-            '<title>Claude PR Review - PR #${{ github.event.pull_request.number }}</title>' +
-            '<style>body{font-family:-apple-system,Arial,sans-serif;max-width:900px;margin:40px auto;padding:0 20px;line-height:1.6}' +
-            'table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:8px;text-align:left}' +
-            'th{background:#f4f4f4}code{background:#f4f4f4;padding:2px 6px;border-radius:4px}</style></head><body>' +
-            html + '</body></html>';
+
+          if (inTable) {
+            html += '</table>\n';
+          }
+
+          const page = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <title>Claude PR Review - PR #${process.env.PR_NUMBER}</title>
+
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                  Arial, sans-serif;
+                max-width: 1000px;
+                margin: 40px auto;
+                padding: 0 20px;
+                line-height: 1.6;
+                color: #24292f;
+              }
+
+              table {
+                border-collapse: collapse;
+                width: 100%;
+                margin: 20px 0;
+              }
+
+              th, td {
+                border: 1px solid #d0d7de;
+                padding: 10px;
+                text-align: left;
+              }
+
+              th {
+                background: #f6f8fa;
+              }
+
+              h1, h2, h3 {
+                margin-top: 30px;
+              }
+            </style>
+          </head>
+
+          <body>
+            ${html}
+          </body>
+          </html>
+          `;
+
           fs.writeFileSync('claude-review.html', page);
-          "
+          NODE
+
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
 
       - name: Upload HTML report
         uses: actions/upload-artifact@v4
