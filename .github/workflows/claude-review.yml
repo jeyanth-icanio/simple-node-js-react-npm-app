@@ -20,25 +20,28 @@ jobs:
 
     steps:
 
-      # ============================================
+      # ==================================================
       # 1. Checkout repository
-      # ============================================
+      # ==================================================
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      # ============================================
+      # ==================================================
       # 2. Check environment
-      # ============================================
+      # ==================================================
       - name: Check environment
         shell: bash
         run: |
-          echo "====================================="
-          echo "Runner Environment"
-          echo "====================================="
+          set -e
 
-          echo "Operating System:"
+          echo "======================================"
+          echo "Runner Environment"
+          echo "======================================"
+
+          echo ""
+          echo "OS:"
           uname -a
 
           echo ""
@@ -54,46 +57,56 @@ jobs:
           git --version
 
           echo ""
-          echo "Current Directory:"
+          echo "GitHub CLI:"
+          gh --version
+
+          echo ""
+          echo "Current directory:"
           pwd
 
           echo ""
-          echo "Repository Files:"
+          echo "Repository:"
           ls -la
 
-      # ============================================
-      # 3. Check Anthropic API Key
-      # ============================================
-      - name: Check Anthropic API key
+      # ==================================================
+      # 3. Verify Anthropic API key
+      # ==================================================
+      - name: Verify Anthropic API key
         shell: bash
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          echo "Checking Anthropic API key..."
-
           if [ -z "$ANTHROPIC_API_KEY" ]; then
-            echo "ERROR: ANTHROPIC_API_KEY is not configured."
+            echo "ERROR: ANTHROPIC_API_KEY is missing."
+            echo ""
+            echo "Add it under:"
+            echo "Repository Settings -> Secrets and variables -> Actions"
             exit 1
           fi
 
           echo "SUCCESS: ANTHROPIC_API_KEY is configured."
 
-      # ============================================
-      # 4. Run Claude Code Review
-      # ============================================
+      # ==================================================
+      # 4. Claude Code Review
+      # ==================================================
       - name: Run Claude Code Review
         id: claude
         uses: anthropics/claude-code-action@v1
+
         env:
           GH_TOKEN: ${{ github.token }}
 
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
           github_token: ${{ github.token }}
 
+          # IMPORTANT:
+          # Show Claude's complete output while troubleshooting.
+          show_full_output: true
+
           prompt: |
-            You are a senior software engineer performing a
-            code review for this GitHub Pull Request.
+            Review the current GitHub Pull Request.
 
             Repository:
             ${{ github.repository }}
@@ -101,50 +114,45 @@ jobs:
             Pull Request:
             #${{ github.event.pull_request.number }}
 
-            Application:
-            - Node.js
-            - React
-            - npm
+            The application is a Node.js and React application.
 
-            Review the complete Pull Request.
+            Review the Pull Request for:
 
-            Focus on:
-
-            1. Code quality
-            2. Bugs
-            3. Runtime errors
-            4. Security vulnerabilities
-            5. npm dependency risks
-            6. React best practices
-            7. Node.js best practices
-            8. Test coverage
-            9. Performance
-            10. Maintainability
-            11. Error handling
-            12. Input validation
-            13. Authentication and authorization
-            14. Secrets and sensitive information
-            15. Configuration problems
+            - Code quality
+            - Bugs
+            - Runtime problems
+            - Security vulnerabilities
+            - npm dependency risks
+            - React best practices
+            - Node.js best practices
+            - Test coverage
+            - Performance
+            - Maintainability
+            - Error handling
+            - Input validation
+            - Authentication and authorization
+            - Hard-coded secrets
+            - Configuration problems
 
             IMPORTANT:
 
-            You MUST create a file named:
+            You MUST create a file called:
 
             claude-review.md
 
             in the repository root.
 
-            The review MUST use this format:
+            Use this exact structure:
 
             # Claude Code Review
 
             ## Strengths
 
-            List the positive aspects of the Pull Request.
+            List the strengths of the Pull Request.
 
             ## Issues Found
 
-            Use exactly this table:
+            Use this table:
 
             | Severity | File | Line | Issue |
             |----------|------|------|-------|
@@ -158,7 +166,7 @@ jobs:
 
             Include the file path and line number whenever possible.
 
-            If no issues are found:
+            If there are no issues, use:
 
             | Severity | File | Line | Issue |
             |----------|------|------|-------|
@@ -166,7 +174,7 @@ jobs:
 
             ## Risk Level
 
-            Choose:
+            Choose one:
 
             Low
             Medium
@@ -181,51 +189,37 @@ jobs:
 
             APPROVED
 
-            or
+            or:
 
             CHANGES REQUESTED
 
-            Explain what needs to be fixed before merging.
+            Explain why.
 
-            IMPORTANT:
+            REQUIRED ORDER:
 
-            1. Analyze the Pull Request.
+            1. Inspect the Pull Request.
             2. Create claude-review.md.
             3. Read claude-review.md.
-            4. Post the same content as a Pull Request comment.
-            5. Do NOT skip file creation.
-            6. Do NOT create an empty review.
+            4. Post the same review content as a Pull Request comment.
+
+            Do not skip the file creation step.
 
           claude_args: |
             --max-turns 20
             --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(git diff:*),Bash(git status:*),Bash(git log:*),Bash(git show:*),Read,Write"
 
-      # ============================================
-      # 5. Verify review
-      # ============================================
+      # ==================================================
+      # 5. Verify review file
+      # ==================================================
       - name: Verify Claude review
         shell: bash
         run: |
-          echo "====================================="
-          echo "Checking Claude Review"
-          echo "====================================="
+          echo "======================================"
+          echo "Checking Claude review"
+          echo "======================================"
 
-          if [ -f "claude-review.md" ]; then
-
-            echo "SUCCESS: claude-review.md exists."
-
-            echo ""
-            echo "========== CLAUDE REVIEW =========="
-
-            cat claude-review.md
-
-            echo ""
-            echo "====================================="
-
-          else
-
+          if [ ! -f "claude-review.md" ]; then
             echo "ERROR: claude-review.md was not created."
-
             echo ""
             echo "Current directory:"
             pwd
@@ -234,13 +228,28 @@ jobs:
             echo "Files:"
             ls -la
 
-            exit 1
+            echo ""
+            echo "Searching for review file:"
+            find . -name "claude-review.md" -type f 2>/dev/null || true
 
+            exit 1
           fi
 
-      # ============================================
+          echo "SUCCESS: claude-review.md was created."
+
+          echo ""
+          echo "======================================"
+          echo "CLAUDE REVIEW"
+          echo "======================================"
+
+          cat claude-review.md
+
+          echo ""
+          echo "======================================"
+
+      # ==================================================
       # 6. Convert Markdown to HTML
-      # ============================================
+      # ==================================================
       - name: Convert review to HTML
         shell: bash
         env:
@@ -248,44 +257,77 @@ jobs:
         run: |
           node <<'NODE'
 
-          const fs = require('fs');
+          const fs = require("fs");
 
           const markdown =
-            fs.readFileSync('claude-review.md', 'utf8');
+            fs.readFileSync("claude-review.md", "utf8");
 
           function escapeHtml(text) {
             return text
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')
-              .replace(/"/g, '&quot;')
-              .replace(/'/g, '&#039;');
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;")
+              .replace(/'/g, "&#039;");
           }
 
           const lines = markdown.split(/\r?\n/);
 
-          let html = '';
+          let html = "";
           let inTable = false;
           let firstTableRow = true;
 
           for (const line of lines) {
 
-            if (line.startsWith('# ')) {
-              html += `<h1>${escapeHtml(line.substring(2))}</h1>\n`;
+            if (line.startsWith("# ")) {
+
+              if (inTable) {
+                html += "</table>\n";
+                inTable = false;
+                firstTableRow = true;
+              }
+
+              html +=
+                "<h1>" +
+                escapeHtml(line.substring(2)) +
+                "</h1>\n";
+
               continue;
             }
 
-            if (line.startsWith('## ')) {
-              html += `<h2>${escapeHtml(line.substring(3))}</h2>\n`;
+            if (line.startsWith("## ")) {
+
+              if (inTable) {
+                html += "</table>\n";
+                inTable = false;
+                firstTableRow = true;
+              }
+
+              html +=
+                "<h2>" +
+                escapeHtml(line.substring(3)) +
+                "</h2>\n";
+
               continue;
             }
 
-            if (line.startsWith('### ')) {
-              html += `<h3>${escapeHtml(line.substring(4))}</h3>\n`;
+            if (line.startsWith("### ")) {
+
+              if (inTable) {
+                html += "</table>\n";
+                inTable = false;
+                firstTableRow = true;
+              }
+
+              html +=
+                "<h3>" +
+                escapeHtml(line.substring(4)) +
+                "</h3>\n";
+
               continue;
             }
 
-            if (line.trim().startsWith('|')) {
+            if (line.trim().startsWith("|")) {
 
               const trimmed = line.trim();
 
@@ -296,35 +338,43 @@ jobs:
                 );
 
               const cells =
-                content.split('|')
+                content
+                  .split("|")
                   .map(cell => cell.trim());
 
-              const separator =
+              const isSeparator =
+                cells.length > 0 &&
                 cells.every(cell =>
                   /^:?-+:?$/.test(cell)
                 );
 
-              if (separator) {
+              if (isSeparator) {
                 continue;
               }
 
               if (!inTable) {
-                html += '<table>\n';
+
+                html += "<table>\n";
+
                 inTable = true;
+
                 firstTableRow = true;
               }
 
               const tag =
-                firstTableRow ? 'th' : 'td';
+                firstTableRow ? "th" : "td";
 
-              html += '<tr>';
+              html += "<tr>";
 
               for (const cell of cells) {
+
                 html +=
-                  `<${tag}>${escapeHtml(cell)}</${tag}>`;
+                  `<${tag}>` +
+                  escapeHtml(cell) +
+                  `</${tag}>`;
               }
 
-              html += '</tr>\n';
+              html += "</tr>\n";
 
               firstTableRow = false;
 
@@ -332,100 +382,127 @@ jobs:
             }
 
             if (inTable) {
-              html += '</table>\n';
+
+              html += "</table>\n";
+
               inTable = false;
+
               firstTableRow = true;
             }
 
-            if (line.trim() === '') {
-              html += '<br>\n';
+            if (line.trim() === "") {
+
+              html += "<br>\n";
+
               continue;
             }
 
             html +=
-              `<p>${escapeHtml(line)}</p>\n`;
+              "<p>" +
+              escapeHtml(line) +
+              "</p>\n";
           }
 
           if (inTable) {
-            html += '</table>\n';
+            html += "</table>\n";
           }
 
           const page = `
           <!DOCTYPE html>
+
           <html>
 
           <head>
 
-          <meta charset="UTF-8">
+            <meta charset="UTF-8">
 
-          <title>
-          Claude PR Review - PR #${process.env.PR_NUMBER}
-          </title>
+            <title>
+              Claude PR Review - PR #${process.env.PR_NUMBER}
+            </title>
 
-          <style>
+            <style>
 
-          body {
-            font-family:
-              -apple-system,
-              BlinkMacSystemFont,
-              "Segoe UI",
-              Arial,
-              sans-serif;
+              body {
+                font-family:
+                  -apple-system,
+                  BlinkMacSystemFont,
+                  "Segoe UI",
+                  Arial,
+                  sans-serif;
 
-            max-width: 1100px;
-            margin: 40px auto;
-            padding: 0 25px;
+                max-width: 1100px;
 
-            line-height: 1.6;
-            color: #24292f;
-            background: #ffffff;
-          }
+                margin: 40px auto;
 
-          h1 {
-            border-bottom: 2px solid #ddd;
-            padding-bottom: 10px;
-          }
+                padding: 0 25px;
 
-          h2 {
-            margin-top: 35px;
-            border-bottom: 1px solid #ddd;
-            padding-bottom: 5px;
-          }
+                line-height: 1.6;
 
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 20px 0;
-          }
+                color: #24292f;
 
-          th {
-            background-color: #f6f8fa;
-            font-weight: 600;
-          }
+                background: #ffffff;
+              }
 
-          th,
-          td {
-            border: 1px solid #d0d7de;
-            padding: 10px;
-            text-align: left;
-            vertical-align: top;
-          }
+              h1 {
+                border-bottom:
+                  2px solid #ddd;
 
-          tr:nth-child(even) {
-            background-color: #f9f9f9;
-          }
+                padding-bottom: 10px;
+              }
 
-          p {
-            margin: 10px 0;
-          }
+              h2 {
+                margin-top: 35px;
 
-          </style>
+                border-bottom:
+                  1px solid #ddd;
+
+                padding-bottom: 5px;
+              }
+
+              table {
+                width: 100%;
+
+                border-collapse:
+                  collapse;
+
+                margin: 20px 0;
+              }
+
+              th {
+                background-color:
+                  #f6f8fa;
+
+                font-weight: 600;
+              }
+
+              th,
+              td {
+                border:
+                  1px solid #d0d7de;
+
+                padding: 10px;
+
+                text-align: left;
+
+                vertical-align: top;
+              }
+
+              tr:nth-child(even) {
+                background-color:
+                  #f9f9f9;
+              }
+
+              p {
+                margin: 10px 0;
+              }
+
+            </style>
 
           </head>
 
           <body>
 
-          ${html}
+            ${html}
 
           </body>
 
@@ -433,19 +510,19 @@ jobs:
           `;
 
           fs.writeFileSync(
-            'claude-review.html',
+            "claude-review.html",
             page
           );
 
           console.log(
-            'SUCCESS: claude-review.html created.'
+            "SUCCESS: claude-review.html created."
           );
 
           NODE
 
-      # ============================================
+      # ==================================================
       # 7. Upload HTML report
-      # ============================================
+      # ==================================================
       - name: Upload HTML report
         uses: actions/upload-artifact@v4
         with:
