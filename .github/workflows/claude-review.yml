@@ -28,17 +28,31 @@ jobs:
             npm dependency risks), test coverage, and React/Node best
             practices. Point out strengths as well as weaknesses.
 
-            1. Post your findings as a PR comment using the GitHub
-               comment tool, ending with: Strengths / Issues Found /
-               Risk Level / Recommendation.
-            2. Also write the full review to a file named
-               claude-review.md in the repo root, in the same format,
-               with Issues Found as a markdown table
-               (Severity | File | Line | Issue).
+            IMPORTANT - do these in order, both are required:
+            1. First, write the full review to a file named
+               claude-review.md in the repo root (use the Write tool),
+               formatted with Issues Found as a markdown table
+               (Severity | File | Line | Issue), ending with:
+               Strengths / Issues Found / Risk Level / Recommendation.
+            2. Then post the same content as a PR comment using the
+               GitHub comment tool.
           claude_args: |
             --model claude-sonnet-5
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Write"
-            --max-turns 8
+            --max-turns 15
+
+      - name: Check review file exists
+        shell: bash
+        run: |
+          if [ -f claude-review.md ]; then
+            echo "claude-review.md found:"
+            wc -l claude-review.md
+          else
+            echo "WARNING: claude-review.md was not created by Claude."
+            echo "# Review Unavailable" > claude-review.md
+            echo "" >> claude-review.md
+            echo "Claude did not generate a review file for this run. Check the 'Run Claude Code Action' step log above for details." >> claude-review.md
+          fi
 
       - name: Convert review to HTML
         shell: bash
