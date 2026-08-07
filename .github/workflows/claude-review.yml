@@ -1,0 +1,32 @@
+name: Claude Code Review
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches:
+      - dev
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Review this pull request for a Node.js/React app.
+            Focus on: code quality, bugs, security issues (especially
+            npm dependency risks), test coverage, and React/Node best
+            practices. Point out strengths as well as weaknesses.
+            Post your findings as a PR comment ending with a short
+            summary: Strengths / Issues Found / Risk Level / Recommendation.
+          claude_args: "--model claude-sonnet-5"
