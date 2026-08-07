@@ -17,156 +17,272 @@ jobs:
       id-token: write
 
     steps:
+      # --------------------------------------------------
+      # 1. Checkout repository
+      # --------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
+      # --------------------------------------------------
+      # 2. Show runner environment
+      # --------------------------------------------------
+      - name: Check runner environment
+        shell: pwsh
+        run: |
+          Write-Host "======================================"
+          Write-Host "Runner Environment"
+          Write-Host "======================================"
+
+          Write-Host "Node:"
+          node --version
+
+          Write-Host "NPM:"
+          npm --version
+
+          Write-Host "Git:"
+          git --version
+
+          Write-Host "GitHub CLI:"
+          gh --version
+
+          Write-Host ""
+          Write-Host "Current directory:"
+          Get-Location
+
+          Write-Host ""
+          Write-Host "Repository files:"
+          Get-ChildItem
+
+      # --------------------------------------------------
+      # 3. Run Claude Code Review
+      # --------------------------------------------------
       - name: Run Claude Code Review
+        id: claude-review
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+
           prompt: |
-            Review this pull request for a Node.js/React application.
+            You are reviewing a GitHub Pull Request for a Node.js/React application.
 
-            Focus on:
-            - Code quality
-            - Bugs and potential runtime issues
-            - Security vulnerabilities
-            - npm dependency risks
-            - Test coverage
-            - React best practices
-            - Node.js best practices
-            - Performance issues
+            Review the complete pull request and focus on:
 
-            Point out both strengths and weaknesses.
+            1. Code quality
+            2. Bugs and runtime problems
+            3. Security vulnerabilities
+            4. npm dependency risks
+            5. Test coverage
+            6. React best practices
+            7. Node.js best practices
+            8. Performance issues
+            9. Maintainability
+            10. Configuration issues
 
-            You MUST do the following:
+            IMPORTANT:
 
-            1. Review the complete pull request.
-            2. Create a file named claude-review.md in the repository root.
-            3. The file must contain:
+            You MUST create a file named:
+
+            claude-review.md
+
+            in the repository root.
+
+            The file must contain the following structure:
 
             # Claude Code Review
 
             ## Strengths
 
-            List positive aspects of the changes.
+            List the good aspects of the pull request.
 
             ## Issues Found
 
-            Use this exact markdown table format:
+            Use this exact markdown table:
 
             | Severity | File | Line | Issue |
             |----------|------|------|-------|
 
-            Add all issues found to the table.
+            Severity must be one of:
+
+            Critical
+            High
+            Medium
+            Low
+
+            Include the exact file and line number whenever possible.
 
             ## Risk Level
 
-            State Low, Medium, High, or Critical and explain why.
+            Give one of:
+
+            Low
+            Medium
+            High
+            Critical
+
+            Explain the reason.
 
             ## Recommendation
 
-            Provide a clear recommendation about whether the PR is ready
-            to merge or requires changes.
+            Clearly state whether the PR is:
 
-            4. After creating claude-review.md, post its complete contents
-            as a comment on the pull request.
+            APPROVED
+            or
+            CHANGES REQUESTED
 
-            Do not skip the file creation step.
+            Explain what should be fixed before merging.
+
+            IMPORTANT:
+            First create claude-review.md.
+
+            After creating the file, read the complete contents of
+            claude-review.md.
+
+            Then post the same content as a comment on the current
+            GitHub Pull Request using:
+
+            gh pr comment
+
+            Do not skip the file creation.
 
           claude_args: |
             --model claude-sonnet-4-5
-            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(cat:*),Bash(pwd:*),Bash(ls:*),Bash(touch:*),Bash(echo:*)"
+            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(pwd:*),Bash(ls:*),Bash(cat:*),Bash(echo:*),Bash(git:*),Write"
             --max-turns 20
 
-      - name: Check review file exists
-        shell: bash
+      # --------------------------------------------------
+      # 4. Verify Claude review file
+      # --------------------------------------------------
+      - name: Check review file
+        shell: pwsh
         run: |
-          echo "Checking for claude-review.md..."
+          Write-Host ""
+          Write-Host "======================================"
+          Write-Host "Checking Claude Review File"
+          Write-Host "======================================"
 
-          if [ -f claude-review.md ]; then
-            echo "claude-review.md found."
-            echo "--------------------------------"
-            cat claude-review.md
-            echo "--------------------------------"
-            wc -l claude-review.md
-          else
-            echo "ERROR: claude-review.md was not created."
-            echo "Claude Code Action failed to create the review."
-            exit 1
-          fi
+          $file = "claude-review.md"
 
+          if (Test-Path $file) {
+
+              Write-Host "SUCCESS: claude-review.md exists."
+
+              Write-Host ""
+              Write-Host "File information:"
+              Get-Item $file | Format-List Name,Length,FullName
+
+              Write-Host ""
+              Write-Host "========== CLAUDE REVIEW =========="
+              Get-Content $file
+              Write-Host "===================================="
+
+          }
+          else {
+
+              Write-Host "ERROR: claude-review.md was NOT created."
+
+              Write-Host ""
+              Write-Host "Current directory:"
+              Get-Location
+
+              Write-Host ""
+              Write-Host "Repository files:"
+              Get-ChildItem -Force
+
+              Write-Host ""
+              Write-Host "Searching for claude-review.md:"
+              Get-ChildItem -Path . -Filter "claude-review.md" -Recurse -ErrorAction SilentlyContinue
+
+              Write-Error "Claude Code did not create claude-review.md."
+          }
+
+      # --------------------------------------------------
+      # 5. Convert Markdown to HTML
+      # --------------------------------------------------
       - name: Convert review to HTML
-        shell: bash
+        shell: node {0}
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          node <<'NODE'
           const fs = require('fs');
 
           const md = fs.readFileSync('claude-review.md', 'utf8');
 
-          const esc = s =>
-            s.replace(/&/g, '&amp;')
-             .replace(/</g, '&lt;')
-             .replace(/>/g, '&gt;');
+          function escapeHtml(value) {
+            return value
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#039;');
+          }
 
           const lines = md.split('\n');
+
           let html = '';
           let inTable = false;
-          let tableHeader = true;
+          let firstTableRow = true;
 
           for (const line of lines) {
 
             if (line.startsWith('### ')) {
-              html += '<h3>' + esc(line.slice(4)) + '</h3>\n';
+              html += `<h3>${escapeHtml(line.substring(4))}</h3>\n`;
               continue;
             }
 
             if (line.startsWith('## ')) {
-              html += '<h2>' + esc(line.slice(3)) + '</h2>\n';
+              html += `<h2>${escapeHtml(line.substring(3))}</h2>\n`;
               continue;
             }
 
             if (line.startsWith('# ')) {
-              html += '<h1>' + esc(line.slice(2)) + '</h1>\n';
+              html += `<h1>${escapeHtml(line.substring(2))}</h1>\n`;
               continue;
             }
 
             if (line.trim().startsWith('|')) {
 
-              const cells = line
-                .trim()
-                .slice(1, -1)
-                .split('|')
-                .map(c => c.trim());
+              const trimmed = line.trim();
 
-              if (cells.every(c => /^:?-+:?$/.test(c))) {
+              const cells = trimmed
+                .substring(1, trimmed.length - 1)
+                .split('|')
+                .map(cell => cell.trim());
+
+              const separator = cells.every(cell =>
+                /^:?-+:?$/.test(cell)
+              );
+
+              if (separator) {
                 continue;
               }
 
               if (!inTable) {
                 html += '<table>\n';
                 inTable = true;
-                tableHeader = true;
+                firstTableRow = true;
               }
 
-              const tag = tableHeader ? 'th' : 'td';
+              const tag = firstTableRow ? 'th' : 'td';
 
-              html += '<tr>' +
-                cells.map(c =>
-                  `<${tag}>${esc(c)}</${tag}>`
-                ).join('') +
-                '</tr>\n';
+              html += '<tr>';
 
-              tableHeader = false;
+              for (const cell of cells) {
+                html += `<${tag}>${escapeHtml(cell)}</${tag}>`;
+              }
+
+              html += '</tr>\n';
+
+              firstTableRow = false;
+
               continue;
             }
 
             if (inTable) {
               html += '</table>\n';
               inTable = false;
-              tableHeader = true;
+              firstTableRow = true;
             }
 
             if (line.trim() === '') {
@@ -174,7 +290,7 @@ jobs:
               continue;
             }
 
-            html += '<p>' + esc(line) + '</p>\n';
+            html += `<p>${escapeHtml(line)}</p>\n`;
           }
 
           if (inTable) {
@@ -183,56 +299,96 @@ jobs:
 
           const page = `
           <!DOCTYPE html>
+
           <html>
+
           <head>
-            <meta charset="utf-8">
-            <title>Claude PR Review - PR #${process.env.PR_NUMBER}</title>
+
+            <meta charset="UTF-8">
+
+            <title>
+              Claude PR Review - PR #${process.env.PR_NUMBER}
+            </title>
 
             <style>
+
               body {
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
-                  Arial, sans-serif;
-                max-width: 1000px;
+                font-family:
+                  -apple-system,
+                  BlinkMacSystemFont,
+                  "Segoe UI",
+                  Arial,
+                  sans-serif;
+
+                max-width: 1100px;
                 margin: 40px auto;
-                padding: 0 20px;
+                padding: 0 25px;
+
                 line-height: 1.6;
                 color: #24292f;
+                background: #ffffff;
+              }
+
+              h1 {
+                border-bottom: 2px solid #ddd;
+                padding-bottom: 10px;
+              }
+
+              h2 {
+                margin-top: 35px;
+                border-bottom: 1px solid #ddd;
+                padding-bottom: 5px;
               }
 
               table {
-                border-collapse: collapse;
                 width: 100%;
+                border-collapse: collapse;
                 margin: 20px 0;
               }
 
-              th, td {
+              th {
+                background-color: #f6f8fa;
+                font-weight: 600;
+              }
+
+              th,
+              td {
                 border: 1px solid #d0d7de;
                 padding: 10px;
                 text-align: left;
+                vertical-align: top;
               }
 
-              th {
-                background: #f6f8fa;
+              tr:nth-child(even) {
+                background-color: #f9f9f9;
               }
 
-              h1, h2, h3 {
-                margin-top: 30px;
+              p {
+                margin: 10px 0;
               }
+
             </style>
+
           </head>
 
           <body>
+
             ${html}
+
           </body>
+
           </html>
           `;
 
           fs.writeFileSync('claude-review.html', page);
-          NODE
 
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          console.log(
+            'claude-review.html created successfully.'
+          );
 
+      # --------------------------------------------------
+      # 6. Upload HTML report
+      # --------------------------------------------------
       - name: Upload HTML report
         uses: actions/upload-artifact@v4
         with:
