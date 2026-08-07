@@ -10,7 +10,7 @@ on:
 
 jobs:
   review:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     permissions:
       contents: write
@@ -29,34 +29,29 @@ jobs:
           fetch-depth: 0
 
       # ============================================
-      # 2. Check runner environment
+      # 2. Check environment
       # ============================================
-      - name: Check runner environment
+      - name: Check environment
         shell: bash
         run: |
           echo "====================================="
           echo "Runner Environment"
           echo "====================================="
 
-          echo ""
           echo "Operating System:"
-          echo "$OS"
+          uname -a
 
           echo ""
           echo "Node:"
-          node --version || true
+          node --version
 
           echo ""
           echo "NPM:"
-          npm --version || true
+          npm --version
 
           echo ""
           echo "Git:"
           git --version
-
-          echo ""
-          echo "GitHub CLI:"
-          gh --version || true
 
           echo ""
           echo "Current Directory:"
@@ -67,16 +62,14 @@ jobs:
           ls -la
 
       # ============================================
-      # 3. Test Anthropic API key exists
+      # 3. Check Anthropic API Key
       # ============================================
       - name: Check Anthropic API key
         shell: bash
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          echo "====================================="
-          echo "Checking Anthropic API Key"
-          echo "====================================="
+          echo "Checking Anthropic API key..."
 
           if [ -z "$ANTHROPIC_API_KEY" ]; then
             echo "ERROR: ANTHROPIC_API_KEY is not configured."
@@ -91,13 +84,11 @@ jobs:
       - name: Run Claude Code Review
         id: claude
         uses: anthropics/claude-code-action@v1
-
         env:
           GH_TOKEN: ${{ github.token }}
 
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-
           github_token: ${{ github.token }}
 
           prompt: |
@@ -110,14 +101,14 @@ jobs:
             Pull Request:
             #${{ github.event.pull_request.number }}
 
-            Review the complete Pull Request.
-
             Application:
             - Node.js
             - React
             - npm
 
-            Review the following areas:
+            Review the complete Pull Request.
+
+            Focus on:
 
             1. Code quality
             2. Bugs
@@ -132,12 +123,12 @@ jobs:
             11. Error handling
             12. Input validation
             13. Authentication and authorization
-            14. Secrets or sensitive information
+            14. Secrets and sensitive information
             15. Configuration problems
 
             IMPORTANT:
 
-            You MUST create:
+            You MUST create a file named:
 
             claude-review.md
 
@@ -149,25 +140,25 @@ jobs:
 
             ## Strengths
 
-            List the positive aspects of this Pull Request.
+            List the positive aspects of the Pull Request.
 
             ## Issues Found
 
-            Use exactly:
+            Use exactly this table:
 
             | Severity | File | Line | Issue |
             |----------|------|------|-------|
 
-            Severity must be:
+            Severity must be one of:
 
             Critical
             High
             Medium
             Low
 
-            Include file path and line number whenever possible.
+            Include the file path and line number whenever possible.
 
-            If no issues are found, use:
+            If no issues are found:
 
             | Severity | File | Line | Issue |
             |----------|------|------|-------|
@@ -182,7 +173,7 @@ jobs:
             High
             Critical
 
-            Explain the risk.
+            Explain the risk level.
 
             ## Recommendation
 
@@ -210,7 +201,7 @@ jobs:
             --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(git diff:*),Bash(git status:*),Bash(git log:*),Bash(git show:*),Read,Write"
 
       # ============================================
-      # 5. Verify Claude review file
+      # 5. Verify review
       # ============================================
       - name: Verify Claude review
         shell: bash
@@ -221,13 +212,10 @@ jobs:
 
           if [ -f "claude-review.md" ]; then
 
-            echo ""
-            echo "SUCCESS: claude-review.md was created."
+            echo "SUCCESS: claude-review.md exists."
 
             echo ""
-            echo "====================================="
-            echo "Claude Review"
-            echo "====================================="
+            echo "========== CLAUDE REVIEW =========="
 
             cat claude-review.md
 
@@ -236,20 +224,15 @@ jobs:
 
           else
 
-            echo ""
-            echo "ERROR: claude-review.md was NOT created."
+            echo "ERROR: claude-review.md was not created."
 
             echo ""
             echo "Current directory:"
             pwd
 
             echo ""
-            echo "Repository files:"
+            echo "Files:"
             ls -la
-
-            echo ""
-            echo "Searching for review file:"
-            find . -name "claude-review.md" -type f 2>/dev/null || true
 
             exit 1
 
@@ -288,29 +271,17 @@ jobs:
           for (const line of lines) {
 
             if (line.startsWith('# ')) {
-              html +=
-                '<h1>' +
-                escapeHtml(line.substring(2)) +
-                '</h1>\n';
-
+              html += `<h1>${escapeHtml(line.substring(2))}</h1>\n`;
               continue;
             }
 
             if (line.startsWith('## ')) {
-              html +=
-                '<h2>' +
-                escapeHtml(line.substring(3)) +
-                '</h2>\n';
-
+              html += `<h2>${escapeHtml(line.substring(3))}</h2>\n`;
               continue;
             }
 
             if (line.startsWith('### ')) {
-              html +=
-                '<h3>' +
-                escapeHtml(line.substring(4)) +
-                '</h3>\n';
-
+              html += `<h3>${escapeHtml(line.substring(4))}</h3>\n`;
               continue;
             }
 
@@ -324,12 +295,11 @@ jobs:
                   trimmed.length - 1
                 );
 
-              const cells = content
-                .split('|')
-                .map(cell => cell.trim());
+              const cells =
+                content.split('|')
+                  .map(cell => cell.trim());
 
               const separator =
-                cells.length > 0 &&
                 cells.every(cell =>
                   /^:?-+:?$/.test(cell)
                 );
@@ -351,9 +321,7 @@ jobs:
 
               for (const cell of cells) {
                 html +=
-                  `<${tag}>` +
-                  escapeHtml(cell) +
-                  `</${tag}>`;
+                  `<${tag}>${escapeHtml(cell)}</${tag}>`;
               }
 
               html += '</tr>\n';
@@ -375,9 +343,7 @@ jobs:
             }
 
             html +=
-              '<p>' +
-              escapeHtml(line) +
-              '</p>\n';
+              `<p>${escapeHtml(line)}</p>\n`;
           }
 
           if (inTable) {
@@ -386,7 +352,6 @@ jobs:
 
           const page = `
           <!DOCTYPE html>
-
           <html>
 
           <head>
