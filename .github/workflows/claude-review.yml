@@ -7,7 +7,7 @@ on:
 
 jobs:
   review:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
       pull-requests: write
@@ -27,6 +27,40 @@ jobs:
             Focus on: code quality, bugs, security issues (especially
             npm dependency risks), test coverage, and React/Node best
             practices. Point out strengths as well as weaknesses.
-            Post your findings as a PR comment ending with a short
-            summary: Strengths / Issues Found / Risk Level / Recommendation.
-          claude_args: "--model claude-sonnet-5"
+
+            1. Post your findings as a PR comment using the GitHub
+               comment tool, ending with: Strengths / Issues Found /
+               Risk Level / Recommendation.
+            2. Also write the full review to a file named
+               claude-review.md in the repo root, in the same format,
+               with Issues Found as a markdown table
+               (Severity | File | Line | Issue).
+          claude_args: |
+            --model claude-sonnet-5
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Write"
+            --max-turns 8
+
+      - name: Convert review to HTML
+        run: |
+          npx -y marked claude-review.md > claude-review.html
+          cat <<'EOF' > wrapper.html
+          <!DOCTYPE html><html><head><meta charset="utf-8">
+          <title>Claude PR Review - PR #${{ github.event.pull_request.number }}</title>
+          <style>
+            body { font-family: -apple-system, Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; line-height: 1.6; }
+            table { border-collapse: collapse; width: 100%; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background: #f4f4f4; }
+            code { background: #f4f4f4; padding: 2px 6px; border-radius: 4px; }
+          </style></head><body>
+          EOF
+          cat claude-review.html >> wrapper.html
+          echo "</body></html>" >> wrapper.html
+          mv wrapper.html claude-review.html
+
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-review-report-pr${{ github.event.pull_request.number }}
+          path: claude-review.html
+          retention-days: 30
