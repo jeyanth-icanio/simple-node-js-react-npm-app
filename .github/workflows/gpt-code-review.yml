@@ -49,7 +49,7 @@ jobs:
       - name: Run GPT Code Review
         shell: bash
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: node .github/scripts/review.js
 
       - name: Verify review file
