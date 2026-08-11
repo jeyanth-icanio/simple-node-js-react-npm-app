@@ -4,6 +4,7 @@ on:
   pull_request:
     types:
       - opened
+      - synchronize
     branches:
       - dev
 
@@ -40,16 +41,22 @@ jobs:
         run: |
           echo "SCAN_TIMESTAMP=$(date -u +%Y-%m-%dT%H-%M-%SZ)" >> "$GITHUB_ENV"
 
-      - name: Get PR diff
+      - name: Get PR diff and changed files
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
-          gh pr diff "$PR_NUMBER" > pr.diff
+          git fetch origin "$BASE_REF"
+          git diff "origin/${BASE_REF}...HEAD" > pr.diff
           head -c 60000 pr.diff > pr_trimmed.diff
+          git diff --name-only "origin/${BASE_REF}...HEAD" > changed_files.txt
+          echo "===== Changed files ====="
+          cat changed_files.txt
+          echo "===== Diff size (bytes) ====="
+          wc -c < pr.diff
 
       - name: Run GPT Code Review
+        id: run_review
         shell: bash
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -86,12 +93,24 @@ jobs:
           path: claude-review.html
           retention-days: 30
 
+      - name: Check if gh-pages branch exists
+        id: check_gh_pages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api repos/${{ github.repository }}/branches/gh-pages > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout existing gh-pages history
+        if: steps.check_gh_pages.outputs.exists == 'true'
         uses: actions/checkout@v6
         with:
           ref: gh-pages
           path: gh-pages-existing
-        continue-on-error: true
 
       - name: Assemble Pages publish folder
         shell: bash
@@ -129,3 +148,13 @@ jobs:
         run: |
           echo "This scan: https://${{ github.repository_owner }}.github.io/simple-node-js-react-npm-app/reviews/pr${PR_NUMBER}/${SCAN_TIMESTAMP}/"
           echo "Full history: https://${{ github.repository_owner }}.github.io/simple-node-js-react-npm-app/reviews/pr${PR_NUMBER}/"
+
+      - name: Gate PR on review status
+        shell: bash
+        run: |
+          if [ "${{ steps.run_review.outputs.review_status }}" = "FAIL" ]; then
+            echo "❌ Review found Critical/High issues or Medium+ risk. Blocking merge."
+            exit 1
+          else
+            echo "✅ Review passed. PR can be merged."
+          fi
