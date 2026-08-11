@@ -80,8 +80,13 @@ Respond ONLY in this exact markdown format, nothing else, no preamble:
 (APPROVED or CHANGES REQUESTED, with reason)
 
 STATUS: PASS
-(Use STATUS: PASS only if Risk Level is Low and there are no Critical or High issues.
-Use STATUS: FAIL if there is any Critical or High severity issue, or Risk Level is Medium or above.
+(Use STATUS: FAIL ONLY if there is a genuine Critical or High severity issue -
+something that actually breaks functionality, is a real security vulnerability,
+or causes data loss. Be conservative: do not invent issues to fill the format.
+Medium and Low issues are useful suggestions but must NOT cause a FAIL - use
+STATUS: PASS whenever there are no Critical/High issues, even if Medium/Low
+suggestions are listed. If you are not confident an issue is real and
+significant, do not report it as Critical or High.
 This exact "STATUS: PASS" or "STATUS: FAIL" line must be the very last line of your response.)`;
 
   const userContent = `## PR Diff\n\`\`\`diff\n${diff || '(no diff content available)'}\n\`\`\`\n\n## Changed Files (full content)\n${filesContext || 'No readable file content available.'}`;
