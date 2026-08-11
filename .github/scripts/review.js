@@ -2,7 +2,11 @@ const fs = require('fs');
 
 function readChangedFiles() {
   if (!fs.existsSync('changed_files.txt')) return [];
-  const files = fs.readFileSync('changed_files.txt', 'utf8')
+
+  const raw = fs.readFileSync('changed_files.txt', 'utf8');
+  if (!raw || raw.trim() === '') return [];
+
+  const files = raw
     .split('\n')
     .map(f => f.trim())
     .filter(Boolean);
@@ -28,7 +32,10 @@ function readChangedFiles() {
 }
 
 async function main() {
-  const diff = fs.readFileSync('pr_trimmed.diff', 'utf8');
+  const diff = fs.existsSync('pr_trimmed.diff')
+    ? fs.readFileSync('pr_trimmed.diff', 'utf8')
+    : '';
+
   const changedFiles = readChangedFiles();
 
   const filesContext = changedFiles.map(f =>
@@ -77,7 +84,7 @@ STATUS: PASS
 Use STATUS: FAIL if there is any Critical or High severity issue, or Risk Level is Medium or above.
 This exact "STATUS: PASS" or "STATUS: FAIL" line must be the very last line of your response.)`;
 
-  const userContent = `## PR Diff\n\`\`\`diff\n${diff}\n\`\`\`\n\n## Changed Files (full content)\n${filesContext || 'No readable file content available.'}`;
+  const userContent = `## PR Diff\n\`\`\`diff\n${diff || '(no diff content available)'}\n\`\`\`\n\n## Changed Files (full content)\n${filesContext || 'No readable file content available.'}`;
 
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
