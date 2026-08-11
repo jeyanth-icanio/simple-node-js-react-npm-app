@@ -1,4 +1,4 @@
-name: Claude Code Review
+name: GPT Code Review
 
 on:
   pull_request:
@@ -20,242 +20,124 @@ jobs:
 
     steps:
 
-      # ============================================
-      # 1. Checkout repository
-      # ============================================
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      # ============================================
-      # 2. Verify environment
-      # ============================================
-      - name: Verify environment
+      - name: Verify OpenAI API key
         shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "ERROR: OPENAI_API_KEY is not configured."
+            echo "Go to: Repository Settings -> Secrets and variables -> Actions"
+            echo "Create a secret named OPENAI_API_KEY"
+            exit 1
+          fi
+          echo "OpenAI API key is configured."
+
+      - name: Run GPT Code Review
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
           set -e
 
-          echo "=========================================="
-          echo "Claude Code Review Environment"
-          echo "=========================================="
+          # 1. Get the PR diff (capped to avoid huge payloads)
+          gh pr diff "$PR_NUMBER" > pr.diff
+          head -c 60000 pr.diff > pr_trimmed.diff
 
-          echo "OS:"
-          uname -a
+          # 2. Build the review request and call OpenAI
+          node <<'NODE'
+          const fs = require('fs');
 
-          echo ""
-          echo "Node:"
-          node --version
+          async function main() {
+            const diff = fs.readFileSync('pr_trimmed.diff', 'utf8');
 
-          echo ""
-          echo "NPM:"
-          npm --version
+            const systemPrompt = `You are a senior software engineer reviewing a GitHub Pull Request for a Node.js and React application.
+Check: code quality, bugs, security vulnerabilities, npm dependency risks, React best practices, Node.js best practices, test coverage, performance, error handling, input validation, authentication/authorization, secrets or sensitive info, maintainability, configuration problems.
 
-          echo ""
-          echo "Git:"
-          git --version
+Respond ONLY in this exact markdown format, nothing else:
 
-          echo ""
-          echo "GitHub CLI:"
-          gh --version
+# Claude Review
 
-          echo ""
-          echo "Working directory:"
-          pwd
+## Strengths
+(list strengths)
 
-      # ============================================
-      # 3. Verify Anthropic API key exists
-      # ============================================
-      - name: Verify Anthropic API key
-        shell: bash
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          if [ -z "$ANTHROPIC_API_KEY" ]; then
-            echo "ERROR: ANTHROPIC_API_KEY is not configured."
-            echo ""
-            echo "Go to:"
-            echo "Repository Settings"
-            echo "  -> Secrets and variables"
-            echo "  -> Actions"
-            echo ""
-            echo "Create/update:"
-            echo "ANTHROPIC_API_KEY"
-            exit 1
-          fi
+## Issues Found
+| Severity | File | Line | Issue |
+|----------|------|------|-------|
+(one row per issue; if none, use: | None | - | - | No issues found |)
 
-          echo "Anthropic API key is configured."
-          echo "The key value will not be displayed."
+## Risk Level
+(Low / Medium / High / Critical, with one line explanation)
 
-      # ============================================
-      # 4. Run Claude Code Review
-      # ============================================
-      - name: Run Claude Code Review
-        id: claude
-        uses: anthropics/claude-code-action@v1
+## Recommendation
+(APPROVED or CHANGES REQUESTED, with reason)`;
 
-        env:
-          GH_TOKEN: ${{ github.token }}
+            const res = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+              },
+              body: JSON.stringify({
+                model: 'gpt-5.1',
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: `Here is the PR diff:\n\n${diff}` }
+                ],
+                temperature: 0.2
+              })
+            });
 
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          github_token: ${{ github.token }}
+            const data = await res.json();
 
-          # Keep enabled while troubleshooting.
-          show_full_output: true
+            if (!res.ok) {
+              console.error('OpenAI API error:', JSON.stringify(data));
+              process.exit(1);
+            }
 
-          prompt: |
-            You are a senior software engineer reviewing a GitHub Pull Request.
+            const review = data.choices[0].message.content;
+            fs.writeFileSync('claude-review.md', review);
+            console.log('SUCCESS: claude-review.md written.');
+          }
 
-            Repository:
-            ${{ github.repository }}
+          main();
+          NODE
 
-            Pull Request:
-            #${{ github.event.pull_request.number }}
-
-            Review the Pull Request changes for a Node.js and React application.
-
-            Check the following:
-
-            1. Code quality
-            2. Bugs
-            3. Security vulnerabilities
-            4. npm dependency risks
-            5. React best practices
-            6. Node.js best practices
-            7. Test coverage
-            8. Performance
-            9. Error handling
-            10. Input validation
-            11. Authentication and authorization
-            12. Secrets or sensitive information
-            13. Maintainability
-            14. Configuration problems
-
-            REQUIRED:
-
-            Create this file in the repository root:
-
-            claude-review.md
-
-            The file must contain:
-
-            # Claude Code Review
-
-            ## Strengths
-
-            List the strengths of the Pull Request.
-
-            ## Issues Found
-
-            Use this exact table format:
-
-            | Severity | File | Line | Issue |
-            |----------|------|------|-------|
-
-            Use one of these severities:
-
-            Critical
-            High
-            Medium
-            Low
-
-            Include file path and line number whenever possible.
-
-            If no issues are found, use:
-
-            | Severity | File | Line | Issue |
-            |----------|------|------|-------|
-            | None | - | - | No issues found |
-
-            ## Risk Level
-
-            Select:
-
-            Low
-            Medium
-            High
-            Critical
-
-            Explain the risk level.
-
-            ## Recommendation
-
-            Clearly state either:
-
-            APPROVED
-
-            or:
-
-            CHANGES REQUESTED
-
-            Explain the reason.
-
-            REQUIRED ORDER:
-
-            1. Analyze the Pull Request.
-            2. Create claude-review.md.
-            3. Read claude-review.md.
-            4. Post the exact same content to the Pull Request as a comment.
-
-            Do not skip the file creation.
-
-          claude_args: |
-            --max-turns 20
-            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(git diff:*),Bash(git status:*),Bash(git log:*),Bash(git show:*),Read,Write"
-
-      # ============================================
-      # 5. Verify review file
-      # ============================================
       - name: Verify review file
         shell: bash
         run: |
-          echo "=========================================="
-          echo "Checking claude-review.md"
-          echo "=========================================="
-
-          if [ ! -f "claude-review.md" ]; then
-            echo "ERROR: claude-review.md was not created."
-            echo ""
-            echo "Claude Code did not complete successfully."
-            echo ""
-            echo "Check the Claude Code step above."
-            exit 1
-          fi
-
           if [ ! -s "claude-review.md" ]; then
-            echo "ERROR: claude-review.md is empty."
+            echo "ERROR: claude-review.md was not created or is empty."
             exit 1
           fi
-
-          echo "SUCCESS: claude-review.md exists."
-          echo ""
-
           echo "=========================================="
-          echo "CLAUDE REVIEW"
-          echo "=========================================="
-
           cat claude-review.md
-
-          echo ""
           echo "=========================================="
 
-      # ============================================
-      # 6. Convert Markdown to HTML
-      # ============================================
+      - name: Post review as PR comment
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment "$PR_NUMBER" --body-file claude-review.md
+
       - name: Convert review to HTML
         shell: bash
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           node <<'NODE'
-
           const fs = require("fs");
-
-          const md = fs.readFileSync(
-            "claude-review.md",
-            "utf8"
-          );
+          const md = fs.readFileSync("claude-review.md", "utf8");
 
           function escapeHtml(value) {
             return value
@@ -267,239 +149,66 @@ jobs:
           }
 
           const lines = md.split(/\r?\n/);
-
           let html = "";
           let inTable = false;
           let headerProcessed = false;
 
           for (const line of lines) {
-
             if (line.startsWith("# ")) {
-
-              if (inTable) {
-                html += "</table>\n";
-                inTable = false;
-              }
-
-              html +=
-                "<h1>" +
-                escapeHtml(line.substring(2)) +
-                "</h1>\n";
-
+              if (inTable) { html += "</table>\n"; inTable = false; }
+              html += "<h1>" + escapeHtml(line.substring(2)) + "</h1>\n";
               continue;
             }
-
             if (line.startsWith("## ")) {
-
-              if (inTable) {
-                html += "</table>\n";
-                inTable = false;
-              }
-
-              html +=
-                "<h2>" +
-                escapeHtml(line.substring(3)) +
-                "</h2>\n";
-
+              if (inTable) { html += "</table>\n"; inTable = false; }
+              html += "<h2>" + escapeHtml(line.substring(3)) + "</h2>\n";
               continue;
             }
-
             if (line.startsWith("### ")) {
-
-              if (inTable) {
-                html += "</table>\n";
-                inTable = false;
-              }
-
-              html +=
-                "<h3>" +
-                escapeHtml(line.substring(4)) +
-                "</h3>\n";
-
+              if (inTable) { html += "</table>\n"; inTable = false; }
+              html += "<h3>" + escapeHtml(line.substring(4)) + "</h3>\n";
               continue;
             }
-
             if (line.trim().startsWith("|")) {
-
               const trimmed = line.trim();
-
-              const content = trimmed.substring(
-                1,
-                trimmed.length - 1
-              );
-
-              const cells = content
-                .split("|")
-                .map(cell => cell.trim());
-
-              const separator = cells.every(
-                cell => /^:?-+:?$/.test(cell)
-              );
-
-              if (separator) {
-                continue;
-              }
-
-              if (!inTable) {
-                html += "<table>\n";
-                inTable = true;
-                headerProcessed = false;
-              }
-
-              const tag =
-                headerProcessed ? "td" : "th";
-
+              const content = trimmed.substring(1, trimmed.length - 1);
+              const cells = content.split("|").map(c => c.trim());
+              const separator = cells.every(c => /^:?-+:?$/.test(c));
+              if (separator) continue;
+              if (!inTable) { html += "<table>\n"; inTable = true; headerProcessed = false; }
+              const tag = headerProcessed ? "td" : "th";
               html += "<tr>";
-
-              for (const cell of cells) {
-                html +=
-                  `<${tag}>${escapeHtml(cell)}</${tag}>`;
-              }
-
+              for (const cell of cells) html += `<${tag}>${escapeHtml(cell)}</${tag}>`;
               html += "</tr>\n";
-
               headerProcessed = true;
-
               continue;
             }
-
-            if (inTable) {
-              html += "</table>\n";
-              inTable = false;
-              headerProcessed = false;
-            }
-
-            if (line.trim() === "") {
-              html += "<br>\n";
-              continue;
-            }
-
-            html +=
-              "<p>" +
-              escapeHtml(line) +
-              "</p>\n";
+            if (inTable) { html += "</table>\n"; inTable = false; headerProcessed = false; }
+            if (line.trim() === "") { html += "<br>\n"; continue; }
+            html += "<p>" + escapeHtml(line) + "</p>\n";
           }
+          if (inTable) html += "</table>\n";
 
-          if (inTable) {
-            html += "</table>\n";
-          }
-
-          const htmlPage = `
-          <!DOCTYPE html>
-          <html>
-          <head>
-
-          <meta charset="UTF-8">
-
-          <title>
-          Claude PR Review - PR #${process.env.PR_NUMBER}
-          </title>
-
+          const htmlPage = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+          <title>GPT PR Review - PR #${process.env.PR_NUMBER}</title>
           <style>
+          body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;max-width:1100px;margin:40px auto;padding:0 25px;line-height:1.6;color:#24292f;background:#fff}
+          h1{border-bottom:2px solid #ddd;padding-bottom:10px}
+          h2{margin-top:35px;border-bottom:1px solid #ddd;padding-bottom:5px}
+          table{width:100%;border-collapse:collapse;margin:20px 0}
+          th{background-color:#f6f8fa;font-weight:600}
+          th,td{border:1px solid #d0d7de;padding:10px;text-align:left;vertical-align:top}
+          tr:nth-child(even){background-color:#f9f9f9}
+          p{margin:10px 0}
+          </style></head><body>${html}</body></html>`;
 
-          body {
-            font-family:
-              -apple-system,
-              BlinkMacSystemFont,
-              "Segoe UI",
-              Arial,
-              sans-serif;
-
-            max-width: 1100px;
-
-            margin: 40px auto;
-
-            padding: 0 25px;
-
-            line-height: 1.6;
-
-            color: #24292f;
-
-            background: #ffffff;
-          }
-
-          h1 {
-            border-bottom:
-              2px solid #ddd;
-
-            padding-bottom: 10px;
-          }
-
-          h2 {
-            margin-top: 35px;
-
-            border-bottom:
-              1px solid #ddd;
-
-            padding-bottom: 5px;
-          }
-
-          table {
-            width: 100%;
-
-            border-collapse:
-              collapse;
-
-            margin: 20px 0;
-          }
-
-          th {
-            background-color:
-              #f6f8fa;
-
-            font-weight: 600;
-          }
-
-          th,
-          td {
-            border:
-              1px solid #d0d7de;
-
-            padding: 10px;
-
-            text-align: left;
-
-            vertical-align: top;
-          }
-
-          tr:nth-child(even) {
-            background-color:
-              #f9f9f9;
-          }
-
-          p {
-            margin: 10px 0;
-          }
-
-          </style>
-
-          </head>
-
-          <body>
-
-          ${html}
-
-          </body>
-          </html>
-          `;
-
-          fs.writeFileSync(
-            "claude-review.html",
-            htmlPage
-          );
-
-          console.log(
-            "SUCCESS: claude-review.html created."
-          );
-
+          fs.writeFileSync("claude-review.html", htmlPage);
+          console.log("SUCCESS: claude-review.html created.");
           NODE
 
-      # ============================================
-      # 7. Upload HTML report
-      # ============================================
       - name: Upload HTML report
         uses: actions/upload-artifact@v4
         with:
-          name: claude-review-report-pr${{ github.event.pull_request.number }}
+          name: gpt-review-report-pr${{ github.event.pull_request.number }}
           path: claude-review.html
           retention-days: 30
