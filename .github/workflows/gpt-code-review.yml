@@ -1,0 +1,85 @@
+name: GPT Code Review
+
+on:
+  pull_request:
+    types:
+      - opened
+    branches:
+      - dev
+
+jobs:
+  review:
+    runs-on: self-hosted
+
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Verify OpenAI API key
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "ERROR: OPENAI_API_KEY is not configured."
+            echo "Go to: Repository Settings -> Secrets and variables -> Actions"
+            echo "Create a secret named OPENAI_API_KEY"
+            exit 1
+          fi
+          echo "OpenAI API key is configured."
+
+      - name: Get PR diff
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr diff "$PR_NUMBER" > pr.diff
+          head -c 60000 pr.diff > pr_trimmed.diff
+
+      - name: Run GPT Code Review
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: node .github/scripts/review.js
+
+      - name: Verify review file
+        shell: bash
+        run: |
+          if [ ! -s "claude-review.md" ]; then
+            echo "ERROR: claude-review.md was not created or is empty."
+            exit 1
+          fi
+          echo "=========================================="
+          cat claude-review.md
+          echo "=========================================="
+
+      - name: Post review as PR comment
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment "$PR_NUMBER" --body-file claude-review.md
+
+      - name: Convert review to HTML
+        shell: bash
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node .github/scripts/convert-html.js
+
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpt-review-report-pr${{ github.event.pull_request.number }}
+          path: claude-review.html
+          retention-days: 30
