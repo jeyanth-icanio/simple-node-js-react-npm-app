@@ -110,11 +110,8 @@ jobs:
         shell: bash
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          PR_DIR="pages-publish/reviews/pr${PR_NUMBER}" node .github/scripts/build-index.js
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_DIR: pages-publish/reviews/pr${{ github.event.pull_request.number }}
+        run: node .github/scripts/build-index.js
 
       - name: Publish to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
