@@ -24,19 +24,32 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify OpenAI API key
+      # - name: Verify OpenAI API key
+      #   shell: bash
+      #   env:
+      #     OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      #   run: |
+      #     if [ -z "$OPENAI_API_KEY" ]; then
+      #       echo "ERROR: OPENAI_API_KEY is not configured."
+      #       echo "Go to: Repository Settings -> Secrets and variables -> Actions"
+      #       echo "Create a secret named OPENAI_API_KEY"
+      #       exit 1
+      #     fi
+      #     echo "OpenAI API key is configured."
+
+      - name: Verify Groq API key
         shell: bash
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          if [ -z "$OPENAI_API_KEY" ]; then
-            echo "ERROR: OPENAI_API_KEY is not configured."
+          if [ -z "$GROQ_API_KEY" ]; then
+            echo "ERROR: GROQ_API_KEY is not configured."
             echo "Go to: Repository Settings -> Secrets and variables -> Actions"
-            echo "Create a secret named OPENAI_API_KEY"
+            echo "Create a secret named GROQ_API_KEY"
             exit 1
           fi
-          echo "OpenAI API key is configured."
-
+          echo "Groq API key is configured."
+    
       - name: Get PR diff
         shell: bash
         env:
