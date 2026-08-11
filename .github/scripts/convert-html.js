@@ -3,13 +3,18 @@ const md = fs.readFileSync("claude-review.md", "utf8");
 const prNumber = process.env.PR_NUMBER;
 const timestamp = process.env.SCAN_TIMESTAMP || new Date().toISOString();
 
+// Full HTML-unsafe character coverage, including backtick which the
+// previous version missed (relevant since markdown content can contain
+// backtick code spans that end up rendered directly into the page).
 function escapeHtml(value) {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+    .replace(/'/g, "&#039;")
+    .replace(/`/g, "&#096;")
+    .replace(/\//g, "&#x2F;");
 }
 
 function severityBadge(cellText) {
